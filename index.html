@@ -155,7 +155,8 @@
 
   @media (max-width: 760px) {
     body { font-size: 1.0625rem; }
-    .page { padding: 0 1.25rem; }
+    /* The wide right padding is a lane for the line, so the line never crosses the text. */
+    .page { padding: 0 2.5rem 0 1.25rem; }
     .thread path { stroke-width: 2.25; }
     .entry, .bye { grid-template-columns: 1fr; }
     .entry .doodle, .bye .doodle {
@@ -298,6 +299,20 @@
     return d;
   };
 
+  // A polyline with round corners. The first point is the current pen position.
+  const rounded = (pts, r) => {
+    let d = '';
+    for (let i = 1; i < pts.length; i++) {
+      const a = pts[i - 1], b = pts[i], c = pts[i + 1];
+      if (!c) { d += ` L${f(b[0])},${f(b[1])}`; continue; }
+      const k = Math.min(r, Math.hypot(b[0] - a[0], b[1] - a[1]) / 2, Math.hypot(c[0] - b[0], c[1] - b[1]) / 2);
+      const back = unit(b, a), next = unit(b, c);
+      d += ` L${f(b[0] + back[0] * k)},${f(b[1] + back[1] * k)}`
+        + ` Q${f(b[0])},${f(b[1])} ${f(b[0] + next[0] * k)},${f(b[1] + next[1] * k)}`;
+    }
+    return d;
+  };
+
   let total = 0;
   let reach = [];
   const STEP = 6;
@@ -322,19 +337,27 @@
       const sharp = name in sharpShapes;
       // A shape to the left of the line is mirrored, so the line enters it from the right.
       // Without this, the line crosses the shape to reach its left side.
-      const mirrored = !oneWay.has(anchor.dataset.shape) && box.left + box.width / 2 - origin.left < end[0];
+      const mirrored = !narrow.matches && !oneWay.has(anchor.dataset.shape) && box.left + box.width / 2 - origin.left < end[0];
       const pts = (sharp ? sharpShapes[name] : shapes[name]).map(([px, py]) => [
         box.left - origin.left + (mirrored ? 100 - px : px) * scale,
         box.top - origin.top + py * scale,
       ]);
 
-      const into = unit(pts[0], pts[1]);
-      const gap = Math.hypot(pts[0][0] - end[0], pts[0][1] - end[1]);
-      // On a narrow screen, a short pull keeps the line inside the page and away from the text.
-      const pull = Math.min(Math.max(gap * 0.45, 40), narrow.matches ? 44 : box.width * 1.1);
-      d += ` C${f(end[0] + dir[0] * pull)},${f(end[1] + dir[1] * pull)}`
-        + ` ${f(pts[0][0] - into[0] * pull)},${f(pts[0][1] - into[1] * pull)}`
-        + ` ${f(pts[0][0])},${f(pts[0][1])}`;
+      if (narrow.matches) {
+        // On a narrow screen, the text fills the width. The line goes down the lane in the right padding.
+        // It crosses to the shape above the shape, where the page has no text.
+        const lane = origin.width - 16;
+        const above = box.top - origin.top - 18;
+        const side = pts[0][0] - 18;
+        d += rounded([end, [lane, end[1]], [lane, above], [side, above], [side, pts[0][1]], pts[0]], 16);
+      } else {
+        const into = unit(pts[0], pts[1]);
+        const gap = Math.hypot(pts[0][0] - end[0], pts[0][1] - end[1]);
+        const pull = Math.min(Math.max(gap * 0.45, 40), box.width * 1.1);
+        d += ` C${f(end[0] + dir[0] * pull)},${f(end[1] + dir[1] * pull)}`
+          + ` ${f(pts[0][0] - into[0] * pull)},${f(pts[0][1] - into[1] * pull)}`
+          + ` ${f(pts[0][0])},${f(pts[0][1])}`;
+      }
       d += sharp ? pts.slice(1).map(p => ` L${f(p[0])},${f(p[1])}`).join('') : smooth(pts);
 
       end = pts[pts.length - 1];
